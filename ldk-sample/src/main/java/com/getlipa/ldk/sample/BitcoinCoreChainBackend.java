@@ -1,9 +1,11 @@
 package com.getlipa.ldk.sample;
 
+import okhttp3.Credentials;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
+import okhttp3.Response;
 import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.core.Transaction;
 import org.bouncycastle.util.encoders.Hex;
@@ -17,7 +19,8 @@ import java.util.Arrays;
 public class BitcoinCoreChainBackend implements ChainBackend {
 
     private final String URL = Env.get("BTC_CORE_URL");
-    private final String AUTH = Env.get("BTC_CORE_AUTH");
+    private final String BTC_USER = Env.get("BTC_CORE_USER");
+    private final String BTC_PASS = Env.get("BTC_CORE_PASS");
 
     public static final MediaType JSON
             = MediaType.get("application/json; charset=utf-8");
@@ -38,20 +41,23 @@ public class BitcoinCoreChainBackend implements ChainBackend {
     @Override
     public int blockHeight() {
         final var body = "{\"jsonrpc\": \"1.0\", \"id\": \"curltest\", \"method\": \"getblockcount\", \"params\": []}";
+        final String credentials = Credentials.basic(BTC_USER, BTC_PASS);
         final var request = new Request.Builder()
                 .url(URL)
                 .post(RequestBody.create(JSON, body))
-                .addHeader("Authorization", String.format("Basic %s", AUTH))
+                .addHeader("Authorization", credentials)
                 .build();
-        final String response;
         try {
-            response = client.newCall(request).execute()
-                    .body().string();
+            final Response response = client.newCall(request).execute();
+            if (!response.isSuccessful()) {
+                throw new IOException("Unexpected code: " + response);
+            }
+            
+            final var json = new JSONObject(response.body().string());
+            return json.getInt("result");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        final var json = new JSONObject(response);
-        return json.getInt("result");
     }
 
     @Override
@@ -60,12 +66,14 @@ public class BitcoinCoreChainBackend implements ChainBackend {
         final var request = new Request.Builder()
                 .url(URL)
                 .post(RequestBody.create(JSON, String.format(body, Hex.toHexString(blockHash))))
-                .addHeader("Authorization", String.format("Basic %s", AUTH))
+                .addHeader("Authorization", Credentials.basic(BTC_USER, BTC_PASS))
                 .build();
         try {
-            final var response = client.newCall(request).execute()
-                    .body().string();
-            final var json = new JSONObject(response);
+            final Response response = client.newCall(request).execute();
+            if (!response.isSuccessful()) {
+                throw new IOException("Unexpected code: " + response);
+            }
+            final var json = new JSONObject(response.body().string());
             return json.getJSONObject("result").getInt("height");
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -78,12 +86,14 @@ public class BitcoinCoreChainBackend implements ChainBackend {
         final var request = new Request.Builder()
                 .url(URL)
                 .post(RequestBody.create(JSON, String.format(body, height)))
-                .addHeader("Authorization", String.format("Basic %s", AUTH))
+                .addHeader("Authorization", Credentials.basic(BTC_USER, BTC_PASS))
                 .build();
         try {
-            final var response = client.newCall(request).execute()
-                    .body().string();
-            final var json = new JSONObject(response);
+            final Response response = client.newCall(request).execute();
+            if (!response.isSuccessful()) {
+                throw new IOException("Unexpected code: " + response);
+            }
+            final var json = new JSONObject(response.body().string());
             return Hex.decode(json.getString("result"));
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -96,14 +106,15 @@ public class BitcoinCoreChainBackend implements ChainBackend {
         final var request = new Request.Builder()
                 .url(URL)
                 .post(RequestBody.create(JSON, String.format(body, Hex.toHexString(hash))))
-                .addHeader("Authorization", String.format("Basic %s", AUTH))
+                .addHeader("Authorization", Credentials.basic(BTC_USER, BTC_PASS))
                 .build();
         try {
-            final var response = client.newCall(request).execute()
-                    .body()
-                    .string();
+            final var response = client.newCall(request).execute();
+            if (!response.isSuccessful()) {
+                throw new IOException("Unexpected code: " + response);
+            }
             System.out.println(response);
-            final var json = new JSONObject(response).getJSONObject("result");
+            final var json = new JSONObject(response.body().string()).getJSONObject("result");
             final var buffer = ByteBuffer.wrap(new byte[80]);
             buffer.order(ByteOrder.LITTLE_ENDIAN);
             buffer.putInt(json.getInt("version"));
@@ -127,12 +138,14 @@ public class BitcoinCoreChainBackend implements ChainBackend {
         final var request = new Request.Builder()
                 .url(URL)
                 .post(RequestBody.create(JSON, String.format(body, tx)))
-                .addHeader("Authorization", String.format("Basic %s", AUTH))
+                .addHeader("Authorization", Credentials.basic(BTC_USER, BTC_PASS))
                 .build();
         try {
-            final var response = client.newCall(request).execute()
-                    .body().string();
-            final var json = new JSONObject(response);
+            final var response = client.newCall(request).execute();
+            if (!response.isSuccessful()) {
+                throw new IOException("Unexpected code: " + response);
+            }
+            final var json = new JSONObject(response.body().string());
             System.out.println(json);
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -150,17 +163,19 @@ public class BitcoinCoreChainBackend implements ChainBackend {
         final var request = new Request.Builder()
                 .url(URL)
                 .post(RequestBody.create(JSON, String.format(body, Hex.toHexString(reverse(txid)))))
-                .addHeader("Authorization", String.format("Basic %s", AUTH))
+                .addHeader("Authorization", Credentials.basic(BTC_USER, BTC_PASS))
                 .build();
         try {
-            final var response = client.newCall(request).execute()
-                    .body()
-                    .string();
-            System.out.println(response);
-            if (!new JSONObject(response).has("result")) {
+            final var response = client.newCall(request).execute();
+            if (!response.isSuccessful()) {
+                throw new IOException("Unexpected code: " + response);
+            }
+            final String message = response.body().string();
+            System.out.println(message);
+            if (!new JSONObject(message).has("result")) {
                 return null;
             }
-            final var json = new JSONObject(response).getJSONObject("result");
+            final var json = new JSONObject(message).getJSONObject("result");
 
             return new TxBlockInfo(
                     Hex.decode(json.getString("blockhash")),
@@ -182,13 +197,14 @@ public class BitcoinCoreChainBackend implements ChainBackend {
                         body,
                         Hex.toHexString(blockHash)
                 )))
-                .addHeader("Authorization", String.format("Basic %s", AUTH))
+                .addHeader("Authorization", Credentials.basic(BTC_USER, BTC_PASS))
                 .build();
         try {
-            final var response = client.newCall(request).execute()
-                    .body()
-                    .string();
-            final var json = new JSONObject(response).getJSONObject("result");
+            final var response = client.newCall(request).execute();
+            if (!response.isSuccessful()) {
+                throw new IOException("Unexpected code: " + response);
+            }
+            final var json = new JSONObject(response.body().string()).getJSONObject("result");
             System.out.println(json);
             if (!json.has("tx")) {
                 return -1;

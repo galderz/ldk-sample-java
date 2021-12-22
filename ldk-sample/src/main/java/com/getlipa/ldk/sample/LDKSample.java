@@ -21,13 +21,16 @@ import org.ldk.structs.Event;
 import org.ldk.structs.Filter;
 import org.ldk.structs.Invoice;
 import org.ldk.structs.KeysManager;
+import org.ldk.structs.MonitorUpdateId;
 import org.ldk.structs.Option_C2Tuple_usizeTransactionZZ;
+import org.ldk.structs.Option_FilterZ;
 import org.ldk.structs.Option_u64Z;
 import org.ldk.structs.OutPoint;
 import org.ldk.structs.Persist;
 import org.ldk.structs.Result_InvoiceSignOrCreationErrorZ;
 import org.ldk.structs.Result_NoneChannelMonitorUpdateErrZ;
 import org.ldk.structs.Result_TransactionNoneZ;
+import org.ldk.structs.TwoTuple_usizeTransactionZ;
 import org.ldk.structs.TxOut;
 import org.ldk.structs.UserConfig;
 import org.ldk.structs.UtilMethods;
@@ -77,9 +80,11 @@ public class LDKSample {
     }
 
     void start() throws Exception {
+        System.out.println(chainBackend.blockHeight());
+
         // Step 1
         final var feeEstimator = org.ldk.structs.FeeEstimator.new_impl(confirmation_target -> {
-            return 12500; // TODO
+            return 2000; // TODO
         });
 
         // Step 2
@@ -94,14 +99,14 @@ public class LDKSample {
         final var persist = Persist.new_impl(new Persist.PersistInterface() {
 
             @Override
-            public Result_NoneChannelMonitorUpdateErrZ persist_new_channel(final OutPoint id, final ChannelMonitor data) {
+            public Result_NoneChannelMonitorUpdateErrZ persist_new_channel(OutPoint id, ChannelMonitor data, MonitorUpdateId update_id) {
                 System.out.printf("Persist new %s / %s%n", Hex.toHexString(id.to_channel_id()), Hex.toHexString(reverse(id.get_txid())));
                 persist(id, data.write());
                 return Result_NoneChannelMonitorUpdateErrZ.ok();
             }
 
             @Override
-            public Result_NoneChannelMonitorUpdateErrZ update_persisted_channel(final OutPoint id, final ChannelMonitorUpdate update, final ChannelMonitor data) {
+            public Result_NoneChannelMonitorUpdateErrZ update_persisted_channel(OutPoint id, ChannelMonitorUpdate update, ChannelMonitor data, MonitorUpdateId update_id) {
                 System.out.printf("Persist existing %s / %s%n", Hex.toHexString(id.to_channel_id()), Hex.toHexString(reverse(id.get_txid())));
                 persist(id, data.write());
                 return Result_NoneChannelMonitorUpdateErrZ.ok();
@@ -130,7 +135,7 @@ public class LDKSample {
         });
 
         // Step 8
-        final ChainMonitor chainMonitor = ChainMonitor.of(filter, txBroadcaster, logger, feeEstimator, persist);
+        final ChainMonitor chainMonitor = ChainMonitor.of(Option_FilterZ.some(filter), txBroadcaster, logger, feeEstimator, persist);
 
         // Step 9
         final var seed = Hex.decode(SEED);
@@ -185,6 +190,7 @@ public class LDKSample {
             channelManagerConstructor = new ChannelManagerConstructor(
                     serializedChannelManager,
                     channelMonitors,
+                    UserConfig.with_default(),
                     keyManager.as_KeysInterface(),
                     feeEstimator,
                     chainMonitor,
@@ -197,7 +203,7 @@ public class LDKSample {
         final ChannelManager channelManager = channelManagerConstructor.channel_manager;
 
         // Step 6
-        final var channelManagerPersister = new ChannelManagerConstructor.ChannelManagerPersister() {
+        final var channelManagerPersister = new ChannelManagerConstructor.EventHandler() {
 
             @Override
             public void handle_event(final Event e) {
@@ -216,13 +222,13 @@ public class LDKSample {
                 } else if (e instanceof Event.PaymentReceived) {
                     var event = (Event.PaymentReceived) e;
                     System.out.printf("Payment of %s SAT received.%n", event.amt);
-                    channelManager.claim_funds(event.payment_preimage);
+                    channelManager.claim_funds(event.payment_hash);
                 } else if (e instanceof Event.PaymentSent) {
                     var event = (Event.PaymentSent) e;
                     System.out.printf("Payment with preimage '%s' sent.%n", Hex.toHexString(event.payment_preimage));
-                } else if (e instanceof Event.PaymentFailed) {
-                    var event = (Event.PaymentFailed) e;
-                    System.out.printf("Payment with payment hash '%s' failed.%n", Hex.toHexString(event.payment_hash));
+                } else if (e instanceof Event.PaymentPathFailed) {
+                    var event = (Event.PaymentPathFailed) e;
+                    System.out.printf("Payment path with payment hash '%s' failed.%n", Hex.toHexString(event.payment_hash));
                 } else if (e instanceof Event.PendingHTLCsForwardable) {
                     var event = (Event.PendingHTLCsForwardable) e;
                     channelManager.process_pending_htlc_forwards();
@@ -260,7 +266,7 @@ public class LDKSample {
                 });
 
         checkBlockchain(relevantTxs, channelManager, chainMonitor);
-        channelManagerConstructor.chain_sync_completed(channelManagerPersister);
+        channelManagerConstructor.chain_sync_completed(channelManagerPersister, null);
 
         // Step 13 - DONE
         final NioPeerHandler peerHandler = channelManagerConstructor.nio_peer_handler;
@@ -302,10 +308,10 @@ public class LDKSample {
                 .sorted(Comparator.comparing(entry -> entry.getKey().height))
                 .forEach(entry -> {
                     final var block = entry.getKey();
-                    final var txData = new TwoTuple[entry.getValue().size()];
+                    final var txData = new TwoTuple_usizeTransactionZ[entry.getValue().size()];
                     var i = 0;
                     for (final var txInfo : entry.getValue()) {
-                        txData[i] = new TwoTuple<>(chainBackend.determineBlockIndex(block.hash, txInfo.id), txInfo.data);
+                        txData[i] = TwoTuple_usizeTransactionZ.of(chainBackend.determineBlockIndex(block.hash, txInfo.id), txInfo.data);
                         i++;
                     }
                     final var blockHeader = chainBackend.blockHeader(block.hash);
